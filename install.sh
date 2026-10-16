@@ -7,14 +7,18 @@
 # What it changes inside Starsector.app (nothing else on the Mac):
 #   Contents/Home-arm64/                        arm64 Java 17 runtime (from payload/)
 #   Contents/Resources/Java/native/macosx-arm64/ arm64 LWJGL + OpenAL natives (from payload/)
+#   Contents/Resources/Java/native/macosx-arm64-cp/
+#                                               arm64 natives that game jars unpack from their own classpath
+#                                               (webp-imageio's libwebp-imageio.dylib), put first on the classpath
 #   Contents/MacOS/starsector_mac.sh            adds a USE_NATIVE_ARM64 switch and Apple Silicon JVM settings;
 #                                               original saved as starsector_mac.sh.before-armsector
+# Running a newer install.sh over an older ArmSector rebuilds the launcher from that saved original.
 # Undo with uninstall.sh. Runs with the bash 3.2 and tools that ship with macOS.
 set -euo pipefail
 set -f   # no globbing: launcher flags are split on spaces below
 
 PACK_NAME="ArmSector"
-PACK_VERSION="1.0.0"
+PACK_VERSION="1.1.0"
 MARKER=".installed-by-armsector"   # in every directory this pack installs
 BLOCK_TAG="armsector"              # marks the block added to the launcher
 SUFFIX=".before-armsector"         # launcher backup / directories moved aside
@@ -25,9 +29,11 @@ APP="${1:-/Applications/Starsector.app}"
 APP="${APP%/}"
 C="$APP/Contents"
 LAUNCHER="$C/MacOS/starsector_mac.sh"
+BACKUP="$LAUNCHER$SUFFIX"
 JAVA_DIR="$C/Resources/Java"
 RUNTIME="$C/Home-arm64"
 NATIVES="$JAVA_DIR/native/macosx-arm64"
+CP_NATIVES="$JAVA_DIR/native/macosx-arm64-cp"
 
 say() { printf '%s\n' "$*"; }
 die() { printf '\nERROR: %s\nNothing in Starsector was changed.\n' "$*" >&2; exit 1; }
@@ -43,7 +49,8 @@ say ""
     die "This Mac has an Intel processor. The pack is only for Apple Silicon (M1 or newer) Macs."
 
 [ -x "$PAYLOAD/Home-arm64/bin/java" ] && [ -f "$PAYLOAD/native/macosx-arm64/liblwjgl.dylib" ] &&
-    [ -f "$PAYLOAD/native/macosx-arm64/openal.dylib" ] ||
+    [ -f "$PAYLOAD/native/macosx-arm64/openal.dylib" ] &&
+    [ -f "$PAYLOAD/native/macosx-arm64-cp/native/mac/64/libwebp-imageio.dylib" ] ||
     die "The pack's payload folder is incomplete. Extract the zip again and run install.sh from inside it."
 
 [ -f "$LAUNCHER" ] ||
@@ -58,8 +65,18 @@ esac
 grep -q -- '--add-opens' "$LAUNCHER" && grep -q '^JAVA_VERSION="17' "$C/Home/release" 2>/dev/null ||
     die "This install doesn't look like it has a Java 17 community pack (no Java 17 in Contents/Home, or no --add-opens flags in the launcher). The pack only supports installs with a Java 17 pack for now."
 
-if pgrep -f com.fs.starfarer.StarfarerLauncher >/dev/null 2>&1; then
-    die "Starsector is running. Quit it and run install.sh again."
+# True if a Starsector started from this install is running (its working directory is inside the app).
+game_running() {
+    local app_real pid cwd
+    app_real="$(cd "$APP" && pwd -P)"
+    for pid in $(pgrep -f com.fs.starfarer.StarfarerLauncher 2>/dev/null || true); do
+        cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"
+        case "$cwd" in "$app_real"/*) return 0 ;; esac
+    done
+    return 1
+}
+if game_running; then
+    die "Starsector is running from this install. Quit it and run install.sh again."
 fi
 
 for d in "$C" "$C/MacOS" "$JAVA_DIR/native"; do
@@ -67,19 +84,32 @@ for d in "$C" "$C/MacOS" "$JAVA_DIR/native"; do
 done
 [ -w "$LAUNCHER" ] || die "Can't write to $LAUNCHER."
 
-# How the launcher will be handled.
+# How the launcher will be handled. SOURCE is the unmodified launcher the edit starts from.
 if grep -q ">>> $BLOCK_TAG" "$LAUNCHER"; then
-    launcher_mode=already          # installed before: only refresh the files
+    installed_version="$(sed -nE "s/^# >>> $BLOCK_TAG: $PACK_NAME ([^,]+),.*/\1/p" "$LAUNCHER" | head -1)"
+    if [ "$installed_version" = "$PACK_VERSION" ]; then
+        launcher_mode=already      # this version installed before: only refresh the files
+    else
+        launcher_mode=upgrade      # older ArmSector: rebuild the launcher from the original it saved
+        [ -f "$BACKUP" ] && ! grep -q ">>> $BLOCK_TAG" "$BACKUP" ||
+            die "The launcher has ArmSector ${installed_version:-?} but its saved original ($(basename "$BACKUP")) is missing, so it can't be updated. Run the old version's uninstall.sh, or reapply your Java pack, then run this installer."
+        SOURCE="$BACKUP"
+    fi
 elif grep -q 'USE_NATIVE_ARM64=' "$LAUNCHER"; then
     launcher_mode=foreign          # someone added a switch by hand: leave it alone
 else
     launcher_mode=edit
-    [ "$(grep -cE '^[[:space:]]*export JAVA_HOME=\.\./\.\./Home[[:space:]]*$' "$LAUNCHER")" = 1 ] ||
+    SOURCE="$LAUNCHER"
+    [ ! -e "$RUNTIME$SUFFIX" ] && [ ! -e "$NATIVES$SUFFIX" ] && [ ! -e "$CP_NATIVES$SUFFIX" ] ||
+        die "Leftovers from an earlier install exist (*$SUFFIX next to Home-arm64 or the native folders). Run uninstall.sh first."
+fi
+if [ "$launcher_mode" = edit ] || [ "$launcher_mode" = upgrade ]; then
+    [ "$(grep -cE '^[[:space:]]*export JAVA_HOME=\.\./\.\./Home[[:space:]]*$' "$SOURCE")" = 1 ] ||
         die "The launcher doesn't have exactly one 'export JAVA_HOME=../../Home' line, so the pack doesn't know how to edit it."
-    [ "$(grep -cE -- '-Djava\.library\.path=\.\./\.\./Resources/Java/native/macosx([[:space:]\\]|$)' "$LAUNCHER")" = 1 ] ||
+    [ "$(grep -cE -- '-Djava\.library\.path=\.\./\.\./Resources/Java/native/macosx([[:space:]\\]|$)' "$SOURCE")" = 1 ] ||
         die "The launcher doesn't have exactly one '-Djava.library.path=../../Resources/Java/native/macosx' flag, so the pack doesn't know how to edit it."
-    [ ! -e "$RUNTIME$SUFFIX" ] && [ ! -e "$NATIVES$SUFFIX" ] ||
-        die "Leftovers from an earlier install exist ($RUNTIME$SUFFIX or $NATIVES$SUFFIX). Run uninstall.sh first."
+    [ "$(grep -cE '^[[:space:]]*-cp[[:space:]]+[^[:space:]]' "$SOURCE")" = 1 ] ||
+        die "The launcher doesn't have exactly one '-cp' classpath line, so the pack doesn't know how to edit it."
 fi
 
 # --- Install the runtime and the natives ------------------------------------------------------------
@@ -108,7 +138,7 @@ install_dir() { # <source dir> <destination dir>
     ditto "$src" "$dest"
     installed+=("$dest")
     # Downloaded files carry a quarantine flag; macOS refuses to load quarantined libraries that aren't
-    # notarized (liblwjgl.dylib and openal.dylib are only ad-hoc signed). Cleared for these files only.
+    # notarized (the pack's game libraries are only ad-hoc signed). Cleared for these files only.
     xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
     printf '%s %s, installed %s\n' "$PACK_NAME" "$PACK_VERSION" "$(date '+%Y-%m-%d %H:%M')" > "$dest/$MARKER"
 }
@@ -120,6 +150,8 @@ install_dir "$PAYLOAD/native/macosx-arm64" "$NATIVES"
 ditto "$HERE/LICENSES" "$NATIVES/LICENSES"
 xattr -dr com.apple.quarantine "$NATIVES/LICENSES" 2>/dev/null || true
 say "  Contents/Resources/Java/native/macosx-arm64 (LWJGL 2.9.3 + OpenAL Soft 1.23.1 for arm64)"
+install_dir "$PAYLOAD/native/macosx-arm64-cp" "$CP_NATIVES"
+say "  Contents/Resources/Java/native/macosx-arm64-cp (WebP image support for arm64)"
 
 J="$RUNTIME/bin/java"
 codesign --verify "$J" 2>/dev/null && "$J" -version >/dev/null 2>&1 ||
@@ -129,7 +161,7 @@ codesign --verify "$J" 2>/dev/null && "$J" -version >/dev/null 2>&1 ||
 
 if [ "$launcher_mode" = already ]; then
     say ""
-    say "The launcher already has this pack's switch; it was left as it is."
+    say "The launcher already has $PACK_NAME $PACK_VERSION's switch; it was left as it is."
 elif [ "$launcher_mode" = foreign ]; then
     say ""
     say "The launcher already has a USE_NATIVE_ARM64 switch that this pack didn't add; it was left as it is."
@@ -137,7 +169,7 @@ else
     cd "$JAVA_DIR"   # the launcher runs java from here; relative paths in flags resolve against it
 
     # One flag per line ending in a backslash: the layout of the Java 17 pack launchers.
-    flag_lines() { sed -nE 's/^[[:space:]]*(-[^[:space:]"$]+)[[:space:]]*\\[[:space:]]*$/\1/p' "$LAUNCHER"; }
+    flag_lines() { sed -nE 's/^[[:space:]]*(-[^[:space:]"$]+)[[:space:]]*\\[[:space:]]*$/\1/p' "$SOURCE"; }
 
     # The Java pack's -XX tuning flags were written for an x86 Java. Some are x86-only and stop the arm64 Java
     # from starting (-XX:UseAVX=3); others slow the game down here: compiler directives that keep combat code
@@ -175,7 +207,9 @@ else
 # >>> $BLOCK_TAG: $PACK_NAME $PACK_VERSION, added by install.sh on $(date '+%Y-%m-%d') >>>
 # $PACK_NAME: run Starsector natively on Apple Silicon Macs.
 # USE_NATIVE_ARM64=1: arm64 Java 17 (Contents/Home-arm64), LWJGL natives built for arm64
-#   (Resources/Java/native/macosx-arm64), and the JVM settings for Apple Silicon in the first JVM_TUNING_FLAGS.
+#   (Resources/Java/native/macosx-arm64), arm64 copies of natives that game jars unpack from the classpath
+#   (Resources/Java/native/macosx-arm64-cp, put first on the classpath), and the JVM settings for Apple Silicon
+#   in the first JVM_TUNING_FLAGS. Java errors that don't reach the game log go to logs/starsector-stderr.log.
 # USE_NATIVE_ARM64=0: the previous setup under Rosetta (Contents/Home + native/macosx) with all previous flags
 #   (the second JVM_TUNING_FLAGS holds the Java pack's tuning flags, unchanged).
 # To remove $PACK_NAME, run uninstall.sh from the pack (restores starsector_mac.sh$SUFFIX).
@@ -185,10 +219,16 @@ if [ "\$USE_NATIVE_ARM64" = 1 ] && [ "\$(sysctl -n hw.optional.arm64 2>/dev/null
         && [ -x ../../Home-arm64/bin/java ] && [ -f ../../Resources/Java/native/macosx-arm64/liblwjgl.dylib ]; then
     export JAVA_HOME=../../Home-arm64
     NATIVE_DIR=../../Resources/Java/native/macosx-arm64
+    CP_OVERRIDES=../../Resources/Java/native/macosx-arm64-cp:
     JVM_TUNING_FLAGS="$NATIVE_TUNING"
+    if mkdir -p ../../../logs 2>/dev/null && [ -w ../../../logs ]; then
+        exec 2>>../../../logs/starsector-stderr.log
+        echo "=== \$(date '+%Y-%m-%d %H:%M:%S') Starsector started in $PACK_NAME native mode" >&2
+    fi
 else
     export JAVA_HOME=../../Home
     NATIVE_DIR=../../Resources/Java/native/macosx
+    CP_OVERRIDES=
     JVM_TUNING_FLAGS="$pack_tuning"
 fi
 # <<< $BLOCK_TAG <<<
@@ -211,12 +251,20 @@ EOF
         }
         /-Djava\.library\.path=/ { placeholder() }
         { print }
-    ' "$LAUNCHER" |
-        sed -E 's#-Djava\.library\.path=\.\./\.\./Resources/Java/native/macosx([[:space:]\\]|$)#-Djava.library.path=$NATIVE_DIR\1#' \
+    ' "$SOURCE" |
+        sed -E -e 's#-Djava\.library\.path=\.\./\.\./Resources/Java/native/macosx([[:space:]\\]|$)#-Djava.library.path=$NATIVE_DIR\1#' \
+            -e 's#^([[:space:]]*)-cp[[:space:]]+#\1-cp ${CP_OVERRIDES}#' \
         > "$tmp/launcher"
 
+    # An upgrade keeps the player's USE_NATIVE_ARM64 setting.
+    previous_switch="$(sed -nE 's/^USE_NATIVE_ARM64=([01])[[:space:]]*$/\1/p' "$LAUNCHER" | head -1)"
+    if [ "$launcher_mode" = upgrade ] && [ "$previous_switch" = 0 ]; then
+        sed -i '' 's/^USE_NATIVE_ARM64=1$/USE_NATIVE_ARM64=0/' "$tmp/launcher"
+    fi
+
     grep -q ">>> $BLOCK_TAG" "$tmp/launcher" && grep -q -- '-Djava.library.path=$NATIVE_DIR' "$tmp/launcher" &&
-        grep -q '^[[:space:]]*${JVM_TUNING_FLAGS} \\$' "$tmp/launcher" && bash -n "$tmp/launcher" ||
+        grep -q '^[[:space:]]*${JVM_TUNING_FLAGS} \\$' "$tmp/launcher" &&
+        grep -q '^[[:space:]]*-cp \${CP_OVERRIDES}' "$tmp/launcher" && bash -n "$tmp/launcher" ||
         { rollback; die "Editing the launcher failed (the edited copy didn't check out)."; }
 
     # Both settings of the switch must start their Java: the edited launcher's one-per-line flags in order, with
@@ -246,23 +294,35 @@ $out"
         say "  (Rosetta isn't installed, so the USE_NATIVE_ARM64=0 setup couldn't be checked)"
     fi
 
-    backup="$LAUNCHER$SUFFIX"
-    if [ -e "$backup" ] && ! cmp -s "$backup" "$LAUNCHER"; then
-        old="$backup.old-$(date '+%Y%m%d-%H%M%S')"
-        mv "$backup" "$old"
-        say "  an older launcher backup was renamed to $(basename "$old")"
+    if [ "$launcher_mode" = edit ]; then
+        if [ -e "$BACKUP" ] && ! cmp -s "$BACKUP" "$LAUNCHER"; then
+            old="$BACKUP.old-$(date '+%Y%m%d-%H%M%S')"
+            mv "$BACKUP" "$old"
+            say "  an older launcher backup was renamed to $(basename "$old")"
+        fi
+        cp -p "$LAUNCHER" "$BACKUP"
     fi
-    cp -p "$LAUNCHER" "$backup"
     cat "$tmp/launcher" > "$LAUNCHER"     # in place: keeps the file's owner and permissions
 
     say ""
-    say "Launcher edited: Contents/MacOS/starsector_mac.sh (original saved as starsector_mac.sh$SUFFIX)"
+    if [ "$launcher_mode" = upgrade ]; then
+        say "Launcher updated from $PACK_NAME $installed_version to $PACK_VERSION, rebuilt from your original launcher"
+        say "  (starsector_mac.sh$SUFFIX). USE_NATIVE_ARM64=${previous_switch:-1} was kept; other hand edits to the"
+        say "  $PACK_NAME block were replaced."
+    else
+        say "Launcher edited: Contents/MacOS/starsector_mac.sh (original saved as starsector_mac.sh$SUFFIX)"
+    fi
     say "  native mode uses JVM settings for Apple Silicon: G1 garbage collector, no compiler directives,"
     say "  no heap pre-touch ($(echo $NATIVE_TUNING))"
     say "  your Java pack's $n_pack tuning flags are kept, unchanged, for USE_NATIVE_ARM64=0"
 fi
 
 say ""
-say "Done. Start Starsector the usual way; it now runs natively on Apple Silicon."
-say "To go back to Rosetta for a while: set USE_NATIVE_ARM64=0 in Contents/MacOS/starsector_mac.sh."
+if grep -q '^USE_NATIVE_ARM64=0' "$LAUNCHER"; then
+    say "Done. The launcher is set to USE_NATIVE_ARM64=0, so Starsector still runs under Rosetta."
+    say "To run natively, set USE_NATIVE_ARM64=1 in Contents/MacOS/starsector_mac.sh."
+else
+    say "Done. Start Starsector the usual way; it now runs natively on Apple Silicon."
+    say "To go back to Rosetta for a while: set USE_NATIVE_ARM64=0 in Contents/MacOS/starsector_mac.sh."
+fi
 say "To remove the patch completely: bash uninstall.sh"

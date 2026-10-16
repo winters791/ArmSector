@@ -1,12 +1,12 @@
 #!/bin/bash
 # Removes ArmSector: restores the launcher saved by install.sh and deletes the arm64 runtime and natives
-# that install.sh added.
+# that install.sh added (Home-arm64, native/macosx-arm64, native/macosx-arm64-cp).
 #
 #   bash uninstall.sh [/path/to/Starsector.app]    (default: /Applications/Starsector.app)
 set -euo pipefail
 
 PACK_NAME="ArmSector"
-PACK_VERSION="1.0.0"
+PACK_VERSION="1.1.0"
 MARKER=".installed-by-armsector"
 BLOCK_TAG="armsector"
 SUFFIX=".before-armsector"
@@ -27,8 +27,18 @@ say ""
 [ -f "$LAUNCHER" ] ||
     die "No Starsector launcher at $LAUNCHER. If the game is somewhere else, run: bash uninstall.sh /path/to/Starsector.app"
 
-if pgrep -f com.fs.starfarer.StarfarerLauncher >/dev/null 2>&1; then
-    die "Starsector is running. Quit it and run uninstall.sh again."
+# True if a Starsector started from this install is running (its working directory is inside the app).
+game_running() {
+    local app_real pid cwd
+    app_real="$(cd "$APP" && pwd -P)"
+    for pid in $(pgrep -f com.fs.starfarer.StarfarerLauncher 2>/dev/null || true); do
+        cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"
+        case "$cwd" in "$app_real"/*) return 0 ;; esac
+    done
+    return 1
+}
+if game_running; then
+    die "Starsector is running from this install. Quit it and run uninstall.sh again."
 fi
 
 # 1. Launcher
@@ -44,7 +54,7 @@ else
 fi
 
 # 2. Runtime and natives (only directories that carry the pack's marker are deleted)
-for d in "$C/Home-arm64" "$C/Resources/Java/native/macosx-arm64"; do
+for d in "$C/Home-arm64" "$C/Resources/Java/native/macosx-arm64" "$C/Resources/Java/native/macosx-arm64-cp"; do
     name="${d#"$C"/}"
     if [ -f "$d/$MARKER" ]; then
         rm -rf "${d:?}"

@@ -32,6 +32,20 @@ ArmSector contains no Starsector files. Starsector, its jars, data, and launcher
   that commit is attached to the release as well.
 - The game loads it as a separate dynamic library, so you can swap in your own build of OpenAL Soft.
 
+## WebP ImageIO native library — `native/macosx-arm64-cp/native/mac/64/libwebp-imageio.dylib`
+
+The game's `webp-imageio-0.1.6.jar` ships only an x86_64 copy of its native library. This is an arm64 build of
+the same library, made from source.
+
+- The JNI part is the unmodified C source of webp-imageio 0.1.6
+  (https://github.com/sejda-pdf/webp-imageio, tag `v0.1.6`, commit `5fb8971f57c9389af941ba375894345a6d803e13`).
+  - License: Apache License 2.0 (`webp-imageio-LICENSE-Apache-2.0.txt`).
+  - Notice: `webp-imageio-NOTICE.txt` ("This product includes software developed at Luciad").
+- It is statically linked with libwebp 1.6.0, including libsharpyuv, also unmodified
+  (https://chromium.googlesource.com/webm/libwebp, tag `v1.6.0`, commit `4fa21912338357f89e4fd51cf2368325b59e9bd9`).
+  - License: BSD 3-clause (`libwebp-COPYING.txt`), with Google's patent grant (`libwebp-PATENTS.txt`).
+- Rebuild it with `rebuild-kit/build_webp.sh`. The output is byte-for-byte reproducible.
+
 ## Eclipse Temurin 17.0.20.1+1 (arm64) — `Contents/Home-arm64`
 
 - License: GNU General Public License, version 2, with the Classpath Exception
@@ -41,4 +55,4 @@ ArmSector contains no Starsector files. Starsector, its jars, data, and launcher
   macOS aarch64 JDK, keeping the modules listed in `Home-arm64/release`; see `rebuild-kit/make_runtime.sh`.
 - Source: https://github.com/adoptium/jdk17u, tag `jdk-17.0.20.1+1_adopt`.
 - Eclipse Temurin is a trademark of the Eclipse Foundation. ArmSector is not affiliated with or endorsed by
-  the Eclipse Foundation, Fractal Softworks, or the LWJGL project.
+  the Eclipse Foundation, Fractal Softworks, the LWJGL project, or the WebP and webp-imageio projects.

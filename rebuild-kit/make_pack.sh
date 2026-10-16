@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assembles the release zip from this repository, the arm64 natives, and a Temurin 17 aarch64 JDK.
-# Usage: make_pack.sh <dir with liblwjgl.dylib + openal.dylib> <Temurin 17 aarch64 JDK home> <output dir>
+# Usage: make_pack.sh <dir with liblwjgl.dylib + openal.dylib + libwebp-imageio.dylib> <Temurin 17 aarch64 JDK home> <output dir>
 #   e.g. make_pack.sh /Applications/Starsector.app/Contents/Resources/Java/native/macosx-arm64 \
 #        /Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home dist
 # Writes <output dir>/ArmSector-<version>.zip and the OpenAL Soft source archive
@@ -12,7 +12,7 @@ VERSION="$(sed -n 's/^PACK_VERSION="\(.*\)"$/\1/p' "$REPO/install.sh")"
 NAME="ArmSector-$VERSION"
 OPENAL_COMMIT=0d5d3adf0b532c58c7e171078232fc390e18d931
 
-for f in liblwjgl.dylib openal.dylib; do
+for f in liblwjgl.dylib openal.dylib libwebp-imageio.dylib; do
     [ "$(lipo -archs "$NATIVES/$f")" = arm64 ] || { echo "$NATIVES/$f is not an arm64 library" >&2; exit 1; }
 done
 mkdir -p "$OUTDIR"; OUTDIR="$(cd "$OUTDIR" && pwd)"
@@ -26,6 +26,9 @@ ditto "$REPO/rebuild-kit" "$P/rebuild-kit"
 mkdir -p "$P/payload/native/macosx-arm64"
 cp "$NATIVES/liblwjgl.dylib" "$NATIVES/openal.dylib" "$P/payload/native/macosx-arm64/"
 chmod 755 "$P/payload/native/macosx-arm64/"*.dylib
+mkdir -p "$P/payload/native/macosx-arm64-cp/native/mac/64"   # the path webp-imageio's jar loads its native from
+cp "$NATIVES/libwebp-imageio.dylib" "$P/payload/native/macosx-arm64-cp/native/mac/64/"
+chmod 755 "$P/payload/native/macosx-arm64-cp/native/mac/64/libwebp-imageio.dylib"
 "$HERE/make_runtime.sh" "$JDK" "$P/payload/Home-arm64"
 chmod -R u+w "$P"                    # jlink's legal/ files are read-only
 (cd "$P" && find payload -type f | LC_ALL=C sort | xargs shasum -a 256 > SHA256SUMS.txt)
