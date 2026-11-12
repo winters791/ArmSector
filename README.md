@@ -10,7 +10,7 @@ run natively instead:
   compiler, a garbage-collector mode that runs almost nonstop, and pre-touching the whole heap at startup.
 - **Fullscreen that lets you leave.** Cmd+Tab and Mission Control work while the game is fullscreen.
 
-**Upgrading from 1.0.0?** Run the new `install.sh` the same way. It updates the files and rebuilds the launcher
+**Upgrading from an older ArmSector?** Run the new `install.sh` the same way. It updates the files and rebuilds the launcher
 from the original it saved the first time, and it keeps your `USE_NATIVE_ARM64` setting. See the changelog at the
 end of this page.
 
@@ -23,8 +23,8 @@ report problems with it to them.
 ## What you need
 
 - A Mac with Apple Silicon (M1 or newer). `install.sh` refuses to run on Intel Macs.
-- **Starsector 0.98a with a Java 17 community pack already applied.** ArmSector builds on that setup and
-  doesn't support the plain official download yet. To check, right-click Starsector.app → *Show Package
+- **Starsector 0.98.5a**, whose official Mac download ships Java 17, **or Starsector 0.98a with a Java 17
+  community pack applied.** To check, right-click Starsector.app → *Show Package
   Contents* → `Contents/Home/release` should contain `JAVA_VERSION="17…`. `install.sh` checks this for you and
   stops without changing anything if your install doesn't match.
 - About 130 MB of free space.
@@ -97,9 +97,10 @@ Both replace the launcher, which turns ArmSector off; the game simply runs under
 
 ## Known limits
 
-- **Tested on one setup only:** an M3 Mac, macOS 27.2, Starsector 0.98a-RC8 with a Java 17 pack
-  (Azul Zulu 17 x86). The speedup from the JVM settings has only been seen on that machine, together with
-  the switch to native. Reports from other Macs are very welcome.
+- **Tested on few setups:** an M3 Mac, macOS 27.2, with Starsector 0.98a-RC8 plus a Java 17 pack (Azul Zulu 17
+  x86) and with the official Starsector 0.98.5a-RC4 (which ships Azul Zulu 17 x86). The speedup from the JVM
+  settings has only been seen on that machine, together with the switch to native. Reports from other Macs are
+  very welcome.
 - **The notch.** On MacBooks with a camera notch, fullscreen covers the whole display, so the notch hides a
   small part of the top of the screen. Use windowed mode if that gets in the way.
 - **Mods with their own native libraries.** A mod that ships Intel-only native code (`.dylib` or `.jnilib`)
@@ -157,6 +158,9 @@ See `LICENSES/README.md` for details.
 
 ## Changelog
 
+- **1.2.0:** supports Starsector 0.98.5a. Its official Mac build ships Java 17, so no community pack is needed
+  any more; 0.98a with a Java 17 pack still works. Updating Starsector replaces the launcher, so run
+  `install.sh` again after each game update.
 - **1.1.0:** fixes a loading hang with mods that ship `.webp` images, such as MagicLib. The game's WebP library had
   only an x86 native, so the arm64 Java couldn't load it and loading stalled with no error shown. Native mode
   now also writes Java errors that don't reach the game log to `logs/starsector-stderr.log`. Running the 1.1.0
