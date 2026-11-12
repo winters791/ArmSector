@@ -6,7 +6,7 @@
 set -euo pipefail
 
 PACK_NAME="ArmSector"
-PACK_VERSION="1.1.0"
+PACK_VERSION="1.2.0"
 MARKER=".installed-by-armsector"
 BLOCK_TAG="armsector"
 SUFFIX=".before-armsector"

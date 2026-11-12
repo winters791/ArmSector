@@ -1,6 +1,6 @@
 #!/bin/bash
-# ArmSector: run Starsector natively on Apple Silicon Macs. Installs into a Starsector 0.98a install that has a
-# Java 17 community pack.
+# ArmSector: run Starsector natively on Apple Silicon Macs. Installs into a Starsector 0.98.5a install (which ships
+# Java 17), or a 0.98a install that has a Java 17 community pack.
 #
 #   bash install.sh [/path/to/Starsector.app]      (default: /Applications/Starsector.app)
 #
@@ -18,7 +18,7 @@ set -euo pipefail
 set -f   # no globbing: launcher flags are split on spaces below
 
 PACK_NAME="ArmSector"
-PACK_VERSION="1.1.0"
+PACK_VERSION="1.2.0"
 MARKER=".installed-by-armsector"   # in every directory this pack installs
 BLOCK_TAG="armsector"              # marks the block added to the launcher
 SUFFIX=".before-armsector"         # launcher backup / directories moved aside
@@ -58,12 +58,12 @@ say ""
 
 version="$(plutil -extract CFBundleShortVersionString raw -o - "$C/Info.plist" 2>/dev/null || true)"
 case "$version" in
-    *0.98a*) ;;
-    *) die "This pack was made and tested for Starsector 0.98a; this install reports '${version:-unknown}'." ;;
+    *0.98.5a*|*0.98a*) ;;
+    *) die "This pack was made and tested for Starsector 0.98.5a and 0.98a; this install reports '${version:-unknown}'." ;;
 esac
 
 grep -q -- '--add-opens' "$LAUNCHER" && grep -q '^JAVA_VERSION="17' "$C/Home/release" 2>/dev/null ||
-    die "This install doesn't look like it has a Java 17 community pack (no Java 17 in Contents/Home, or no --add-opens flags in the launcher). The pack only supports installs with a Java 17 pack for now."
+    die "This install doesn't look like it runs on Java 17 (no Java 17 in Contents/Home, or no --add-opens flags in the launcher). Starsector 0.98.5a ships Java 17; on 0.98a, apply a Java 17 community pack first."
 
 # True if a Starsector started from this install is running (its working directory is inside the app).
 game_running() {
